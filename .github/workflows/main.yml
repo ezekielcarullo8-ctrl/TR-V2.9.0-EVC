@@ -1,0 +1,75 @@
+name: Build Treasurer APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Inject Firebase web configuration
+        env:
+          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG_JS }}
+        run: |
+          if [ -n "$FIREBASE_CONFIG" ]; then
+            printf '%s\n' "$FIREBASE_CONFIG" > firebase-config.js
+          elif [ ! -f firebase-config.js ]; then
+            cp firebase-config.example.js firebase-config.js
+            echo "::warning::FIREBASE_CONFIG_JS is not configured; the APK will show setup guidance."
+          fi
+
+      - name: Install JavaScript dependencies
+        run: npm install
+
+      - name: Stage web assets for Capacitor
+        run: |
+          rm -rf www
+          mkdir -p www
+          cp index.html script.js style.css firebase-config.js www/
+
+      - name: Add Android platform
+        run: npx cap add android
+
+      - name: Inject Android Firebase configuration
+        env:
+          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON_B64" ]; then
+            mkdir -p android/app
+            printf '%s' "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > android/app/google-services.json
+          else
+            echo "::warning::GOOGLE_SERVICES_JSON_B64 is not configured; native Google sign-in will not work in the APK."
+          fi
+
+      - name: Sync Capacitor project
+        run: npx cap sync android
+
+      - name: Build debug APK
+        run: cd android && ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: treasurer-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
