@@ -1,0 +1,7 @@
+node_modules/
+android/
+www/
+firebase-config.js
+android/app/google-services.json
+*.keystore
+*.jks
